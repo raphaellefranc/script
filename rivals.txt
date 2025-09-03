@@ -1,0 +1,709 @@
+-- Charge la bibliothèque Rayfield
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Player = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local Mouse = Player:GetMouse()
+
+-- Variables globales
+local Config = {
+    NoclipEnabled = false,
+    AimbotEnabled = false,
+    AimbotFOV = 150,
+    AimbotSpeed = 5,
+    AimbotTargetPart = "Head",
+    AimbotThroughWalls = false,
+    ShowFOV = false,
+    FlyEnabled = false,
+    FlySpeed = 50,
+    RapidFireEnabled = false,
+    InfiniteAmmoEnabled = false,
+    InfiniteMagEnabled = false,
+    NoRecoilEnabled = false,
+    ESPEnabled = false,
+    ChamsEnabled = false,
+    ESPNames = true,
+    ESPBoxes = true,
+    ESPHealth = true,
+    ESPDistance = true,
+    ESPTracers = false,
+    ESPMaxDistance = 1000,
+    ESPBoxColor = Color3.fromRGB(255, 0, 0),
+    ESPNameColor = Color3.fromRGB(255, 255, 255),
+    ESPHealthColor = Color3.fromRGB(0, 255, 0),
+    ESPDistanceColor = Color3.fromRGB(255, 255, 0),
+    ESPTracerColor = Color3.fromRGB(255, 0, 0),
+    ChamsColor = Color3.fromRGB(255, 0, 0),
+    ESPThickness = 1
+}
+
+-- Initialisation des objets de rendu
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Thickness = 1
+FOVCircle.NumSides = 100
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Transparency = 1
+FOVCircle.Filled = false
+
+local Drawings = {}
+local BodyVelocity, BodyGyro = nil, nil
+
+-- Crée la fenêtre UI avec sauvegarde des paramètres
+local Window = Rayfield:CreateWindow({
+    Name = "Rivals Hacks",
+    LoadingTitle = "Chargement...",
+    LoadingSubtitle = "Par Grok",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "RivalsHacks",
+        FileName = "Config"
+    },
+    Discord = {
+        Invite = nil,
+        RememberJoins = true
+    },
+    KeySystem = false,
+    KeySettings = {
+        Title = "Clé",
+        Subtitle = "Entre la clé",
+        Note = "Aucune clé requise",
+        FileName = "Key",
+        SaveKey = true,
+        GrabKeyFromSite = false,
+        Key = {"cléexemple"}
+    }
+})
+
+-- Notification à l'exécution
+Rayfield:Notify({
+    Title = "Script Chargé",
+    Content = "Rivals Hacks chargé avec succès !",
+    Duration = 3,
+    Image = 4483362458,
+    Actions = {}
+})
+
+-- Fonction utilitaire : Obtenir la partie cible
+local function getTargetPart(character)
+    if Config.AimbotTargetPart == "Head" then
+        return character:FindFirstChild("Head")
+    elseif Config.AimbotTargetPart == "Body" then
+        return character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character.HumanoidRootPart
+    elseif Config.AimbotTargetPart == "Feet" then
+        return character:FindFirstChild("LowerTorso") or character.HumanoidRootPart
+    end
+    return nil
+end
+
+-- Fonction utilitaire : Vérifier si la cible est visible
+local function isTargetVisible(targetPart)
+    if Config.AimbotThroughWalls then return true end
+    local unitRay = Camera:ScreenPointToRay(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+    local ray = Ray.new(unitRay.Origin, (targetPart.Position - unitRay.Origin).Unit * 1000)
+    local hit, _ = Workspace:FindPartOnRayWithIgnoreList(ray, {Player.Character})
+    return hit and hit:IsDescendantOf(targetPart.Parent)
+end
+
+-- Fonction utilitaire : Trouver le joueur le plus proche dans le FOV
+local function getClosestPlayer()
+    local closest, minDist = nil, math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= Player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            local targetPart = getTargetPart(p.Character)
+            if targetPart and (Config.AimbotThroughWalls or isTargetVisible(targetPart)) then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if dist < Config.AimbotFOV and dist < minDist then
+                        minDist = dist
+                        closest = {Part = targetPart, Character = p.Character, ScreenPos = Vector2.new(screenPos.X, screenPos.Y)}
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Fonction Aimbot
+local function updateAimbot()
+    RunService.RenderStepped:Connect(function()
+        if Config.AimbotEnabled and Camera and Player.Character then
+            local target = getClosestPlayer()
+            if target then
+                local currentMousePos = UserInputService:GetMouseLocation()
+                local targetPos = target.ScreenPos
+                local delta = (targetPos - currentMousePos) * (Config.AimbotSpeed / 10)
+                mousemoverel(delta.X, delta.Y)
+            end
+        end
+    end)
+end
+
+-- Fonction FOV Circle
+local function updateFOVCircle()
+    RunService.RenderStepped:Connect(function()
+        if Config.ShowFOV and Config.AimbotEnabled and Camera then
+            FOVCircle.Radius = Config.AimbotFOV
+            FOVCircle.Position = UserInputService:GetMouseLocation()
+            FOVCircle.Visible = true
+        else
+            FOVCircle.Visible = false
+        end
+    end)
+end
+
+-- Fonction Fly
+local function toggleFly(enabled)
+    if not Player.Character then return end
+    local root = Player.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if enabled then
+        BodyVelocity = Instance.new("BodyVelocity")
+        BodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        BodyVelocity.Parent = root
+
+        BodyGyro = Instance.new("BodyGyro")
+        BodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+        BodyGyro.CFrame = root.CFrame
+        BodyGyro.Parent = root
+
+        RunService:BindToRenderStep("Fly", 1, function()
+            local move = Vector3.new()
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0, 1, 0) end
+            BodyVelocity.Velocity = move * Config.FlySpeed
+            BodyGyro.CFrame = Camera.CFrame
+        end)
+    else
+        if BodyVelocity then BodyVelocity:Destroy() BodyVelocity = nil end
+        if BodyGyro then BodyGyro:Destroy() BodyGyro = nil end
+        RunService:UnbindFromRenderStep("Fly")
+    end
+end
+
+-- Fonction Noclip (optimisée, murs uniquement)
+local function toggleNoclip(enabled)
+    if not Player.Character then return end
+    RunService:UnbindFromRenderStep("Noclip")
+    
+    if enabled then
+        RunService:BindToRenderStep("Noclip", 1, function()
+            if not Player.Character then return end
+            local root = Player.Character:FindFirstChild("HumanoidRootPart")
+            if not root then return end
+
+            local region = Region3.new(root.Position - Vector3.new(10, 10, 10), root.Position + Vector3.new(10, 10, 10))
+            local parts = Workspace:FindPartsInRegion3WithIgnoreList(region, {Player.Character}, 100)
+            
+            for _, part in ipairs(parts) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    local normal = part.CFrame:VectorToWorldSpace(Vector3.new(0, 1, 0))
+                    if math.abs(normal.Y) < 0.5 then -- Considérer comme mur
+                        for _, charPart in ipairs(Player.Character:GetChildren()) do
+                            if charPart:IsA("BasePart") and charPart ~= root then
+                                charPart.CanCollide = false
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end
+
+-- Fonction Weapon Mods
+local function toggleWeaponMods()
+    RunService:BindToRenderStep("WeaponMods", 2, function()
+        local tool = Player.Character and Player.Character:FindFirstChildOfClass("Tool")
+        if tool then
+            -- Débogage : Lister les propriétés de l'arme
+            local debugProps = {}
+            for _, descendant in ipairs(tool:GetDescendants()) do
+                if descendant:IsA("NumberValue") or descendant:IsA("IntValue") or descendant:IsA("Vector3Value") then
+                    table.insert(debugProps, descendant.Name .. ": " .. tostring(descendant.Value))
+                end
+            end
+            if #debugProps > 0 then
+                print("Propriétés de l'arme:", table.concat(debugProps, ", "))
+            end
+
+            -- Appliquer les modifications
+            for _, descendant in ipairs(tool:GetDescendants()) do
+                if Config.InfiniteAmmoEnabled and (descendant:IsA("NumberValue") or descendant:IsA("IntValue")) and (descendant.Name:lower():find("ammo") or descendant.Name:lower():find("bullet")) then
+                    descendant.Value = math.huge
+                end
+                if Config.InfiniteMagEnabled and (descendant:IsA("NumberValue") or descendant:IsA("IntValue")) and (descendant.Name:lower():find("magazine") or descendant.Name:lower():find("clip")) then
+                    descendant.Value = math.huge
+                end
+                if Config.RapidFireEnabled and descendant:IsA("NumberValue") and (descendant.Name:lower():find("firerate") or descendant.Name:lower():find("delay")) then
+                    descendant.Value = 0
+                end
+                if Config.NoRecoilEnabled and descendant:IsA("Vector3Value") and descendant.Name:lower():find("recoil") then
+                    descendant.Value = Vector3.new(0, 0, 0)
+                end
+            end
+        end
+    end)
+end
+
+-- Fonction Chams
+local function toggleChams(enabled)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= Player and plr.Character then
+            for _, part in ipairs(plr.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if enabled then
+                        local highlight = Instance.new("Highlight")
+                        highlight.FillColor = Config.ChamsColor
+                        highlight.OutlineColor = Config.ChamsColor
+                        highlight.FillTransparency = 0.5
+                        highlight.OutlineTransparency = 0
+                        highlight.Parent = part
+                    else
+                        for _, highlight in ipairs(part:GetChildren()) do
+                            if highlight:IsA("Highlight") then
+                                highlight:Destroy()
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Fonction ESP
+local function addESP(plr)
+    if plr == Player or Drawings[plr] then return end
+    
+    local box = Drawing.new("Square")
+    box.Visible = false
+    box.Color = Config.ESPBoxColor
+    box.Thickness = Config.ESPThickness
+    box.Transparency = 1
+    box.Filled = false
+
+    local name = Drawing.new("Text")
+    name.Visible = false
+    name.Color = Config.ESPNameColor
+    name.Size = 16
+    name.Transparency = 1
+
+    local health = Drawing.new("Text")
+    health.Visible = false
+    health.Color = Config.ESPHealthColor
+    health.Size = 16
+    health.Transparency = 1
+
+    local distance = Drawing.new("Text")
+    distance.Visible = false
+    distance.Color = Config.ESPDistanceColor
+    distance.Size = 16
+    distance.Transparency = 1
+
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false
+    tracer.Color = Config.ESPTracerColor
+    tracer.Thickness = Config.ESPThickness
+    tracer.Transparency = 1
+
+    Drawings[plr] = {box = box, name = name, health = health, distance = distance, tracer = tracer}
+
+    local function updateESP()
+        if not Config.ESPEnabled or not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") or not plr.Character:FindFirstChild("Humanoid") or plr.Character.Humanoid.Health <= 0 then
+            box.Visible = false
+            name.Visible = false
+            health.Visible = false
+            distance.Visible = false
+            tracer.Visible = false
+            return
+        end
+
+        local root = plr.Character.HumanoidRootPart
+        local dist = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") and (Player.Character.HumanoidRootPart.Position - root.Position).Magnitude or math.huge
+        if dist > Config.ESPMaxDistance then
+            box.Visible = false
+            name.Visible = false
+            health.Visible = false
+            distance.Visible = false
+            tracer.Visible = false
+            return
+        end
+
+        local headPos, onScreen = Camera:WorldToViewportPoint(plr.Character.Head.Position)
+        local rootPos = Camera:WorldToViewportPoint(root.Position)
+        local legPos = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+
+        if onScreen then
+            box.Size = Vector2.new(2000 / rootPos.Z, headPos.Y - legPos.Y)
+            box.Position = Vector2.new(rootPos.X - box.Size.X / 2, rootPos.Y - box.Size.Y / 2)
+            box.Visible = Config.ESPBoxes
+            box.Color = Config.ESPBoxColor
+            box.Thickness = Config.ESPThickness
+
+            if Config.ESPNames then
+                name.Text = plr.Name
+                name.Position = Vector2.new(rootPos.X, rootPos.Y - box.Size.Y / 2 - 16)
+                name.Visible = true
+                name.Color = Config.ESPNameColor
+            else
+                name.Visible = false
+            end
+
+            if Config.ESPHealth then
+                health.Text = math.floor(plr.Character.Humanoid.Health) .. "/" .. plr.Character.Humanoid.MaxHealth
+                health.Position = Vector2.new(rootPos.X - box.Size.X / 2 - 50, rootPos.Y)
+                health.Visible = true
+                health.Color = Config.ESPHealthColor
+            else
+                health.Visible = false
+            end
+
+            if Config.ESPDistance then
+                distance.Text = math.floor(dist) .. " studs"
+                distance.Position = Vector2.new(rootPos.X, rootPos.Y + box.Size.Y / 2)
+                distance.Visible = true
+                distance.Color = Config.ESPDistanceColor
+            else
+                distance.Visible = false
+            end
+
+            if Config.ESPTracers then
+                local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                tracer.From = screenCenter
+                tracer.To = Vector2.new(rootPos.X, rootPos.Y)
+                tracer.Visible = true
+                tracer.Color = Config.ESPTracerColor
+                tracer.Thickness = Config.ESPThickness
+            else
+                tracer.Visible = false
+            end
+        else
+            box.Visible = false
+            name.Visible = false
+            health.Visible = false
+            distance.Visible = false
+            tracer.Visible = false
+        end
+    end
+
+    RunService.RenderStepped:Connect(updateESP)
+end
+
+-- Gestion des joueurs pour ESP et Chams
+for _, plr in ipairs(Players:GetPlayers()) do
+    addESP(plr)
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    addESP(plr)
+    if Config.ChamsEnabled then
+        toggleChams(true)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if Drawings[plr] then
+        for _, draw in pairs(Drawings[plr]) do
+            draw:Remove()
+        end
+        Drawings[plr] = nil
+    end
+end)
+
+-- Initialisation des boucles
+updateAimbot()
+updateFOVCircle()
+toggleWeaponMods()
+
+-- Onglet principal
+local MainTab = Window:CreateTab("Principal", 4483362458)
+
+-- Section Noclip
+local NoclipSection = MainTab:CreateSection("Noclip")
+MainTab:CreateToggle({
+    Name = "Activer Noclip (Murs uniquement)",
+    CurrentValue = Config.NoclipEnabled,
+    Flag = "ToggleNoclip",
+    Callback = function(Value)
+        Config.NoclipEnabled = Value
+        toggleNoclip(Value)
+    end,
+})
+
+-- Section Fly
+local FlySection = MainTab:CreateSection("Fly")
+MainTab:CreateToggle({
+    Name = "Activer Fly",
+    CurrentValue = Config.FlyEnabled,
+    Flag = "ToggleFly",
+    Callback = function(Value)
+        Config.FlyEnabled = Value
+        toggleFly(Value)
+    end,
+})
+MainTab:CreateSlider({
+    Name = "Vitesse de Fly",
+    Range = {10, 200},
+    Increment = 1,
+    Suffix = "Speed",
+    CurrentValue = Config.FlySpeed,
+    Flag = "SliderFlySpeed",
+    Callback = function(Value)
+        Config.FlySpeed = Value
+    end,
+})
+
+-- Section Aimbot
+local AimbotSection = MainTab:CreateSection("Aimbot")
+MainTab:CreateToggle({
+    Name = "Activer Aimbot",
+    CurrentValue = Config.AimbotEnabled,
+    Flag = "ToggleAimbot",
+    Callback = function(Value)
+        Config.AimbotEnabled = Value
+        Rayfield:Notify({
+            Title = "Aimbot",
+            Content = Value and "Aimbot activé !" or "Aimbot désactivé !",
+            Duration = 2,
+            Image = 4483362458,
+            Actions = {}
+        })
+    end,
+})
+MainTab:CreateSlider({
+    Name = "FOV Aimbot",
+    Range = {50, 500},
+    Increment = 10,
+    Suffix = "Pixels",
+    CurrentValue = Config.AimbotFOV,
+    Flag = "SliderAimbotFOV",
+    Callback = function(Value)
+        Config.AimbotFOV = Value
+    end,
+})
+MainTab:CreateSlider({
+    Name = "Vitesse",
+    Range = {0.1, 10},
+    Increment = 0.1,
+    Suffix = "Factor",
+    CurrentValue = Config.AimbotSpeed,
+    Flag = "SliderAimbotSpeed",
+    Callback = function(Value)
+        Config.AimbotSpeed = Value
+    end,
+})
+MainTab:CreateDropdown({
+    Name = "Partie à Viser",
+    Options = {"Head", "Body", "Feet"},
+    CurrentOption = Config.AimbotTargetPart,
+    Flag = "DropdownAimbotPart",
+    Callback = function(Option)
+        Config.AimbotTargetPart = Option
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Lock à travers les murs",
+    CurrentValue = Config.AimbotThroughWalls,
+    Flag = "ToggleAimbotThroughWalls",
+    Callback = function(Value)
+        Config.AimbotThroughWalls = Value
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Afficher FOV (Cercle)",
+    CurrentValue = Config.ShowFOV,
+    Flag = "ToggleShowFOV",
+    Callback = function(Value)
+        Config.ShowFOV = Value
+    end,
+})
+
+-- Section Weapon Mods
+local WeaponModsSection = Window:CreateTab("Weapon Mods", 4483362458)
+WeaponModsSection:CreateToggle({
+    Name = "Tire rapide",
+    CurrentValue = Config.RapidFireEnabled,
+    Flag = "ToggleRapidFire",
+    Callback = function(Value)
+        Config.RapidFireEnabled = Value
+    end,
+})
+WeaponModsSection:CreateToggle({
+    Name = "Munitions infinies",
+    CurrentValue = Config.InfiniteAmmoEnabled,
+    Flag = "ToggleInfiniteAmmo",
+    Callback = function(Value)
+        Config.InfiniteAmmoEnabled = Value
+    end,
+})
+WeaponModsSection:CreateToggle({
+    Name = "Chargeur infini",
+    CurrentValue = Config.InfiniteMagEnabled,
+    Flag = "ToggleInfiniteMag",
+    Callback = function(Value)
+        Config.InfiniteMagEnabled = Value
+    end,
+})
+WeaponModsSection:CreateToggle({
+    Name = "No Recoil",
+    CurrentValue = Config.NoRecoilEnabled,
+    Flag = "ToggleNoRecoil",
+    Callback = function(Value)
+        Config.NoRecoilEnabled = Value
+    end,
+})
+
+-- Section ESP
+local ESPSection = MainTab:CreateSection("ESP")
+MainTab:CreateToggle({
+    Name = "Activer ESP",
+    CurrentValue = Config.ESPEnabled,
+    Flag = "ToggleESP",
+    Callback = function(Value)
+        Config.ESPEnabled = Value
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Activer Chams",
+    CurrentValue = Config.ChamsEnabled,
+    Flag = "ToggleChams",
+    Callback = function(Value)
+        Config.ChamsEnabled = Value
+        toggleChams(Value)
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Afficher Noms",
+    CurrentValue = Config.ESPNames,
+    Flag = "ToggleESPNames",
+    Callback = function(Value)
+        Config.ESPNames = Value
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Afficher Boxes",
+    CurrentValue = Config.ESPBoxes,
+    Flag = "ToggleESPBoxes",
+    Callback = function(Value)
+        Config.ESPBoxes = Value
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Afficher Santé",
+    CurrentValue = Config.ESPHealth,
+    Flag = "ToggleESPHealth",
+    Callback = function(Value)
+        Config.ESPHealth = Value
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Afficher Distance",
+    CurrentValue = Config.ESPDistance,
+    Flag = "ToggleESPDistance",
+    Callback = function(Value)
+        Config.ESPDistance = Value
+    end,
+})
+MainTab:CreateToggle({
+    Name = "Afficher Tracers",
+    CurrentValue = Config.ESPTracers,
+    Flag = "ToggleESPTracers",
+    Callback = function(Value)
+        Config.ESPTracers = Value
+    end,
+})
+MainTab:CreateSlider({
+    Name = "Distance Max ESP",
+    Range = {100, 5000},
+    Increment = 100,
+    Suffix = "Studs",
+    CurrentValue = Config.ESPMaxDistance,
+    Flag = "SliderESPMaxDist",
+    Callback = function(Value)
+        Config.ESPMaxDistance = Value
+    end,
+})
+MainTab:CreateSlider({
+    Name = "Épaisseur",
+    Range = {1, 5},
+    Increment = 1,
+    Suffix = "Px",
+    CurrentValue = Config.ESPThickness,
+    Flag = "SliderESPThickness",
+    Callback = function(Value)
+        Config.ESPThickness = Value
+    end,
+})
+MainTab:CreateColorPicker({
+    Name = "Couleur Box",
+    Color = Config.ESPBoxColor,
+    Flag = "ColorESPBox",
+    Callback = function(Value)
+        Config.ESPBoxColor = Value
+    end
+})
+MainTab:CreateColorPicker({
+    Name = "Couleur Nom",
+    Color = Config.ESPNameColor,
+    Flag = "ColorESPName",
+    Callback = function(Value)
+        Config.ESPNameColor = Value
+    end
+})
+MainTab:CreateColorPicker({
+    Name = "Couleur Santé",
+    Color = Config.ESPHealthColor,
+    Flag = "ColorESPHealth",
+    Callback = function(Value)
+        Config.ESPHealthColor = Value
+    end
+})
+MainTab:CreateColorPicker({
+    Name = "Couleur Distance",
+    Color = Config.ESPDistanceColor,
+    Flag = "ColorESPDistance",
+    Callback = function(Value)
+        Config.ESPDistanceColor = Value
+    end
+})
+MainTab:CreateColorPicker({
+    Name = "Couleur Tracer",
+    Color = Config.ESPTracerColor,
+    Flag = "ColorESPTracer",
+    Callback = function(Value)
+        Config.ESPTracerColor = Value
+    end
+})
+MainTab:CreateColorPicker({
+    Name = "Couleur Chams",
+    Color = Config.ChamsColor,
+    Flag = "ColorChams",
+    Callback = function(Value)
+        Config.ChamsColor = Value
+        if Config.ChamsEnabled then
+            toggleChams(true)
+        end
+    end
+})
+
+-- Réinitialisation au respawn
+Player.CharacterAdded:Connect(function(char)
+    toggleNoclip(Config.NoclipEnabled)
+    toggleFly(Config.FlyEnabled)
+end)
